@@ -18,29 +18,30 @@
 ;;  Contributor(s): ______________________________________.
 
 
-(ns com.leftrightfold.trixx
+(ns com.leftrightfold.trixx.core
   (:import (com.rabbitmq.client ConnectionParameters ConnectionFactory
-				MessageProperties QueueingConsumer Connection)
-	   (com.ericsson.otp.erlang OtpSelf OtpPeer OtpConnection
-				    OtpErlangObject OtpErlangBinary OtpErlangLong
-				    OtpErlangList OtpErlangAtom OtpErlangTuple))
-  (:use clojure.contrib.seq-utils)
-  (:use clojure.contrib.str-utils))
+				                        MessageProperties QueueingConsumer Connection)
+	         (com.ericsson.otp.erlang OtpSelf OtpPeer OtpConnection
+				                            OtpErlangObject OtpErlangBinary OtpErlangLong
+				                            OtpErlangList OtpErlangAtom OtpErlangTuple))
+  (:require [clojure.contrib.seq-utils  :as su])
+  (:require [clojure.contrib.str-utils  :as str])
+  (:require [clojure.contrib.java-utils :as ju]))
 
 (def *node-name*       (atom "trixx"))
-(def *cookie*          (atom     (System/getProperty "com.leftrightfold.trixx.cookie")))
-(def *server*          (atom (or (System/getProperty "com.leftrightfold.trixx.rabbit-server") "localhost")))
-(def *rabbit-instance* (atom (or (System/getProperty "com.leftrightfold.trixx.rabbit-instance") "rabbit")))
+(def *cookie*          (atom (ju/get-system-property "com.leftrightfold.trixx.cookie")))
+(def *server*          (atom (ju/get-system-property "com.leftrightfold.trixx.rabbit-server"   "localhost")))
+(def *rabbit-instance* (atom (ju/get-system-property "com.leftrightfold.trixx.rabbit-instance" "rabbit")))
 
 (defn- #^String load-cookie 
   "Set the Erlang *cookie* from the contents of a local file (as a string)."
   [#^String cookie-file]
-  (reset! *cookie* (slurp cookie-file)))
+  (reset! *cookie* (str/chop (slurp cookie-file))))
 
 (defn- #^String load-default-cookie-file
   "Set the Erlang *cookie* from the file $HOME/.erlang.cookie (the default location)."
   []
-  (load-cookie (str (System/getProperty "user.home") "/.erlang.cookie")))
+  (load-cookie (str (ju/get-system-property "user.home") "/.erlang.cookie")))
 
 (defn- log 
   "Log a message to stdout, to be replaced with a logging package."
@@ -51,15 +52,15 @@
 
 (defn set-erlang-cookie! []
   ;; Try to set the cookie, using various fallbacks
-  (let [cookie (System/getProperty "com.leftrightfold.trixx.cookie")]
+  (let [cookie (ju/get-system-property "com.leftrightfold.trixx.cookie")]
     (if cookie 
       (do
         (reset! *cookie* cookie)
         (log "set *cookie*=%s via system property (com.leftrightfold.trixx.cookie)" @*cookie*))))
 
   (if (not @*cookie*)
-    (let [file (str (System/getProperty "user.home") "/.erlang.cookie")
-          f (java.io.File. file)]
+    (let [file (str (ju/get-system-property "user.home") "/.erlang.cookie")
+          f (ju/as-file file)]
       (if (.exists f)
         (do
           (log "set *cookie*=%s via file: %s" @*cookie* file)
@@ -72,13 +73,8 @@
   []
   (reset! *cookie* nil))
 
-;; TODO[KB]: we could use an "ensure-initialized" approach to make
-;; this assertion rather than force it to be done at class loader
-;; time.  For now this is sufficient.  Need to discuss w/Aaron and
-;; Steve
 (if (not @*cookie*)
   (throw (RuntimeException. (format "Trixx Initialization Error, Erlang cookie not set, unable to continue.  Tried system property com.leftrightfold.trixx.cookie and the file $HOME/.erlang.cookie"))))
-
 
 (log "*cookie*=%s"          @*cookie*)
 (log "*server*=%s"          @*server*)
@@ -89,7 +85,7 @@
 
 (defstruct queue-info :name :vhost :durable :auto-delete 
            :messages-ready :messages-unacknowledged
-	   :messages-uncommitted :messages :acks-uncommitted 
+	         :messages-uncommitted :messages :acks-uncommitted 
            :consumers :transactions :memory)
 
 (defstruct queue-binding :vhost :exchange :queue :routing-key)
@@ -104,11 +100,10 @@
 (defstruct vhost :name)
 
 ;;; erlang helper
-;; TODO[KB]: discuss renaming 'value' to something like otp-type->value
 (defmulti  value class)
 (defmethod value OtpErlangBinary [o] (String. (.binaryValue o)))
 (defmethod value OtpErlangLong   [o] (Integer/parseInt (str o)))
-(defmethod value OtpErlangAtom [o] (.atomValue o))
+(defmethod value OtpErlangAtom   [o] (.atomValue o))
 (defmethod value :default        [o] (str o))
 (defmethod value nil             [o] "")
 
@@ -154,11 +149,6 @@ them apart.  The path is applied as a nested series of calls to
       (value item))))
 
 ;;; utility functions
-
-;; TODO[KB]: I don't think this needs to be a macro since it's taking
-;; a function as an argument, it is nice that it looks like doto, but
-;; it breaks with the convention set by with-open, which is an implict
-;; do block (which this is not).
 (defmacro with-channel
   "Executes the given form (as if a doto) in the context of a fresh connection and channgel."
   [server vhost user password f]
@@ -208,12 +198,6 @@ user and password set on the instance."
   [to-node command args]
   (as-seq (execute to-node command args)))
 
-;; TODO[KB]: this swallows an awful lot of exceptions, are we sure we
-;; want to hide all the potential things that could go wrong in the
-;; function?  This kind of thing tends to make debugging a lot more
-;; difficult...also, it's often used to wrap an execute:
-;; (is-successful? (execute ...)), which makes me think a helper
-;; (execute? ...) might be in order...
 (defn- is-successful? 
   [f]
   (try (f) true
@@ -341,7 +325,7 @@ user and password set on the instance."
 
 (defn list-users 
   []
-  (flatten 
+  (su/flatten 
     (map #(list-user-permissions (value %))
          (execute->seq "rabbit_access_control" "list_users" []))))
 
@@ -428,3 +412,4 @@ user and password set on the instance."
             "rabbit_access_control" "check_login" 
             [(OtpErlangBinary. (.getBytes "PLAIN"))  
              (OtpErlangBinary. (.getBytes (str name "\u0000" password)))])))
+
