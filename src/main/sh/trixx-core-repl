@@ -3,7 +3,7 @@ CLASSPATH="$JAR_WITH_DEP"
 
 java -server \
     -Xdebug \
-    -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=8886 \
+    -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=7888 \
     -cp "$CLASSPATH" \
     com.leftrightfold.trixx.main \
     "$@"
