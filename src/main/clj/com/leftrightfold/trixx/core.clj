@@ -66,19 +66,19 @@
           (log "set *cookie*=%s via file: %s" @*cookie* file)
           (load-cookie file))))))
 
-(set-erlang-cookie!)
-
 (defn clear-cookie!
   "Clears the erlang cookie, useful for REPL and testing."
   []
   (reset! *cookie* nil))
 
-(if (not @*cookie*)
-  (throw (RuntimeException. (format "Trixx Initialization Error, Erlang cookie not set, unable to continue.  Tried system property com.leftrightfold.trixx.cookie and the file $HOME/.erlang.cookie"))))
 
-(log "*cookie*=%s"          @*cookie*)
-(log "*server*=%s"          @*server*)
-(log "*rabbit-instance*=%s" @*rabbit-instance*)
+(defn init []
+  (set-erlang-cookie!)
+  (if (not @*cookie*)
+    (throw (RuntimeException. (format "Trixx Initialization Error, Erlang cookie not set, unable to continue.  Tried system property com.leftrightfold.trixx.cookie and the file $HOME/.erlang.cookie"))))
+  (log "*cookie*=%s"          @*cookie*)
+  (log "*server*=%s"          @*server*)
+  (log "*rabbit-instance*=%s" @*rabbit-instance*) )
 
 
 (defstruct exchange-info :name :vhost :type :durable :auto-delete)

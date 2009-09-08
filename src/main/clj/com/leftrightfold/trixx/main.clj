@@ -3,6 +3,7 @@
   (:gen-class))
 
 (defn -main [& args]
+  (trixx/init)
   (prn "Welcome to Trixx Repl")
   (prn "Rabbit status:")
   (prn (trixx/status))
