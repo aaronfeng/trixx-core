@@ -32,6 +32,10 @@
 (def *cookie*          (atom (ju/get-system-property "com.leftrightfold.trixx.cookie")))
 (def *server*          (atom (ju/get-system-property "com.leftrightfold.trixx.rabbit-server"   "localhost")))
 (def *rabbit-instance* (atom (ju/get-system-property "com.leftrightfold.trixx.rabbit-instance" "rabbit")))
+(def *random*          (atom (java.util.Random.)))
+
+(defn- randomNumber [] 
+  (.. @*random* nextInt))
 
 (defn- #^String load-cookie 
   "Set the Erlang *cookie* from the contents of a local file (as a string)."
@@ -187,7 +191,7 @@ user and password set on the instance."
 (defn- execute 
   "RPC Call into the erlang node."
   ([to-node command args]
-     (let [self (OtpSelf. @*node-name* @*cookie*)
+     (let [self (OtpSelf. (str @*node-name* "-" (randomNumber)) @*cookie*)
            peer (OtpPeer. @*rabbit-instance*)]
        (with-open [conn (.connect self peer)]
          (.sendRPC conn to-node command (apply create-args args))
