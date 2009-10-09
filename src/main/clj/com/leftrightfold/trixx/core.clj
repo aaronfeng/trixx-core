@@ -26,7 +26,10 @@
 				                            OtpErlangList OtpErlangAtom OtpErlangTuple))
   (:require [clojure.contrib.seq-utils  :as su])
   (:require [clojure.contrib.str-utils  :as str])
-  (:require [clojure.contrib.java-utils :as ju]))
+  (:require [clojure.contrib.java-utils :as ju])
+  (:require [com.leftrightfold.trixx.log-utils :as log]))
+
+(def *log* (log/get-logger *ns*)) 
 
 (def *node-name*       (atom "trixx"))
 (def *cookie*          (atom (ju/get-system-property "com.leftrightfold.trixx.cookie")))
@@ -47,27 +50,20 @@
   []
   (load-cookie (str (ju/get-system-property "user.home") "/.erlang.cookie")))
 
-(defn- log 
-  "Log a message to stdout, to be replaced with a logging package."
-  [& args]
-  (prn (format "%s: %s"
-               (str (or *file* *ns*))
-               (apply format args))))
-
 (defn set-erlang-cookie! []
   ;; Try to set the cookie, using various fallbacks
   (let [cookie (ju/get-system-property "com.leftrightfold.trixx.cookie")]
     (if cookie 
       (do
         (reset! *cookie* cookie)
-        (log "set *cookie*=%s via system property (com.leftrightfold.trixx.cookie)" @*cookie*))))
+        (log/infof "set *cookie*=%s via system property (com.leftrightfold.trixx.cookie)" @*cookie*))))
 
   (if (not @*cookie*)
     (let [file (str (ju/get-system-property "user.home") "/.erlang.cookie")
           f (ju/as-file file)]
       (if (.exists f)
         (do
-          (log "set *cookie*=%s via file: %s" @*cookie* file)
+          (log/infof "set *cookie*=%s via file: %s" @*cookie* file)
           (load-cookie file))))))
 
 (defn clear-cookie!
@@ -80,9 +76,9 @@
   (set-erlang-cookie!)
   (if (not @*cookie*)
     (throw (RuntimeException. (format "Trixx Initialization Error, Erlang cookie not set, unable to continue.  Tried system property com.leftrightfold.trixx.cookie and the file $HOME/.erlang.cookie"))))
-  (log "*cookie*=%s"          @*cookie*)
-  (log "*server*=%s"          @*server*)
-  (log "*rabbit-instance*=%s" @*rabbit-instance*) )
+  (log/infof "*cookie*=%s"          @*cookie*)
+  (log/infof "*server*=%s"          @*server*)
+  (log/infof "*rabbit-instance*=%s" @*rabbit-instance*) )
 
 
 (defstruct exchange-info :name :vhost :type :durable :auto-delete)
@@ -194,6 +190,7 @@ user and password set on the instance."
      (let [self (OtpSelf. (str @*node-name* "-" (randomNumber)) @*cookie*)
            peer (OtpPeer. @*rabbit-instance*)]
        (with-open [conn (.connect self peer)]
+         (log/infof "[execute] node=%s command=%s args=%s" to-node command args)
          (.sendRPC conn to-node command (apply create-args args))
          (.receiveRPC conn)))))
 
@@ -205,7 +202,8 @@ user and password set on the instance."
 (defn- is-successful? 
   [f]
   (try (f) true
-       (catch Exception _ false)))
+       (catch Exception e 
+         false)))
 
 ;;; via erlang
 (defn status 
@@ -267,6 +265,14 @@ user and password set on the instance."
                 ] 
             (struct queue-binding vhost exchange queue routing-key))
          result)))
+
+(defmacro is-successful2? 
+  [node cmd args]
+  (try (execute ~node ~cmd ~args) true
+       (catch Exception e 
+         (log/errorf "failed executing node=%s cmd=%s args=%s"
+                     node cmd args)
+         false)))
 
 (defn stop-app 
   "Stop the rabbit application in the connected erlang node."
