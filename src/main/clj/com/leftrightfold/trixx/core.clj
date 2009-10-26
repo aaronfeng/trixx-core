@@ -339,6 +339,12 @@ user and password set on the instance."
     (map #(list-user-permissions (value %))
          (execute->seq "rabbit_access_control" "list_users" []))))
 
+(defn user-exists? [#^String user]
+    (loop [[uname & users] (map :name (list-users))]
+          (cond (not uname)     false
+                (= user uname)  true
+                :else           (recur users))))
+
 ;; needs to handle user already exists error
 (defn add-user
   [#^String name #^String password]
