@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <project name="trixx" default="mvn-install" basedir=".">
-  <property name="mvn.deps.file" value="trixx-core-deps-0.1.zip" />
+  <property name="mvn.deps.file" value="trixx-core-deps-0.2.zip" />
   <property name="mvn.deps.url" value="http://cloud.github.com/downloads/aaronfeng/trixx-core/${mvn.deps.file}" />
 
   <property name="mvn.install.rabbitmq-client.jar" value="rabbitmq-client-1.6.0.jar" />

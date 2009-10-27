@@ -111,7 +111,6 @@
                 <filter token="version" value="${version}" />
                 <mkdir dir="${bin.dir}" />
                 <copy file="${basedir}/src/main/sh/trixx-core-repl" todir="${bin.dir}" filtering="on" />
-                <copy file="${basedir}/src/main/emacs/slime-incl.el" todir="${bin.dir}" filtering="on" />
                 <chmod dir="${bin.dir}" type="file" perm="0755" includes="trixx-core-repl,*.sh" verbose="true" />
               </tasks>
             </configuration>
