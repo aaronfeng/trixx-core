@@ -391,7 +391,7 @@ user and password set on the instance."
        (execute->seq "rabbit_networking" "connection_info_all" [])))
 
 (defn- exit [pid]
-  (is-successful? (execute "erlang" "exit" [pid (OtpErlangAtom. "kill")])))
+  (is-successful? #(execute "erlang" "exit" [pid (OtpErlangAtom. "kill")])))
 
 (defn kill-connections
   "Kill all user connections for a given vhost"
