@@ -3,8 +3,8 @@
 ;;  compliance with the License. You may obtain a copy of the License at
 ;;  http://www.mozilla.org/MPL/
 ;;
-;;  Software distributed under the License is distributed on an "AS IS" 
-;;  basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See the 
+;;  Software distributed under the License is distributed on an "AS IS"
+;;  basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See the
 ;;  License for the specific language governing rights and limitations
 ;;  under the License.
 ;;
@@ -23,13 +23,15 @@
 				                        MessageProperties QueueingConsumer Connection)
 	         (com.ericsson.otp.erlang OtpSelf OtpPeer OtpConnection
 				                            OtpErlangObject OtpErlangBinary OtpErlangLong
-				                            OtpErlangList OtpErlangAtom OtpErlangTuple))
+				                            OtpErlangList OtpErlangAtom OtpErlangTuple
+                                                            OtpErlangPid
+                                                            OtpNode OtpMbox))
   (:require [clojure.contrib.seq-utils  :as su])
   (:require [clojure.contrib.str-utils  :as str])
   (:require [clojure.contrib.java-utils :as ju])
   (:require [com.leftrightfold.trixx.log-utils :as log]))
 
-(def *log* (log/get-logger *ns*)) 
+(def *log* (log/get-logger *ns*))
 
 (def *node-name*       (atom "trixx"))
 (def *cookie*          (atom (ju/get-system-property "com.leftrightfold.trixx.cookie")))
@@ -37,10 +39,10 @@
 (def *rabbit-instance* (atom (ju/get-system-property "com.leftrightfold.trixx.rabbit-instance" "rabbit")))
 (def *random*          (atom (java.util.Random.)))
 
-(defn- randomNumber [] 
+(defn- randomNumber []
   (.. @*random* nextInt))
 
-(defn- #^String load-cookie 
+(defn- #^String load-cookie
   "Set the Erlang *cookie* from the contents of a local file (as a string)."
   [#^String cookie-file]
   (reset! *cookie* (str/chop (slurp cookie-file))))
@@ -53,7 +55,7 @@
 (defn set-erlang-cookie! []
   ;; Try to set the cookie, using various fallbacks
   (let [cookie (ju/get-system-property "com.leftrightfold.trixx.cookie")]
-    (if cookie 
+    (if cookie
       (do
         (reset! *cookie* cookie)
         (log/infof "set *cookie*=%s via system property (com.leftrightfold.trixx.cookie)" @*cookie*))))
@@ -83,13 +85,13 @@
 
 (defstruct exchange-info :name :vhost :type :durable :auto-delete)
 
-(defstruct queue-info :name :vhost :durable :auto-delete 
+(defstruct queue-info :name :vhost :durable :auto-delete
            :messages-ready :messages-unacknowledged
-	         :messages-uncommitted :messages :acks-uncommitted 
+	         :messages-uncommitted :messages :acks-uncommitted
            :consumers :transactions :memory)
 
 (defstruct queue-binding :vhost :exchange :queue :routing-key)
-(defstruct connection-info :pid :address :port :peer-address :peer-port 
+(defstruct connection-info :pid :address :port :peer-address :peer-port
            :recv-oct :recv-cnt :send-oct :send-cnt :send-pend
            :state :channels :user :vhost :timeout :frame-max)
 
@@ -125,7 +127,7 @@
 (defn _nth  [item i]  (.elementAt item i))
 (defn _boolean [b]    (Boolean/parseBoolean b))
 
-(defn- otp->pull 
+(defn- otp->pull
   "Most OTP types are nested strctures, this helper aids in pulling
 them apart.  The path is applied as a nested series of calls to
 .elementAt on the item."
@@ -136,7 +138,7 @@ them apart.  The path is applied as a nested series of calls to
       (recur (.elementAt item pos) path)
       item)))
 
-(defn- otp->pullv 
+(defn- otp->pullv
   "Most OTP types are nested strctures, this helper aids in pulling
 them apart.  The path is applied as a nested series of calls to
 .elementAt on the item.  The final value pulled is then passed to the
@@ -163,7 +165,7 @@ them apart.  The path is applied as a nested series of calls to
        (.newConnection factory server)))
 
 (defn- create-conn-params
-  "Create a com.rabbitmq.client.ConnectionParameters instance, with the given vhost,
+  "Create a com.rabbitmq.client.ConnectionParameters instance, with the given vhost
 user and password set on the instance."
   [#^String vhost #^String user #^String password]
   (doto (ConnectionParameters.)
@@ -174,45 +176,49 @@ user and password set on the instance."
 (defn- #^OtpErlangList create-args
   "Helper to construct and return an OtpErlangList suitable for the var-args of rpc calls."
   [& args]
-  (OtpErlangList. 
-   (into-array OtpErlangObject 
-	       (map (fn [x] 
+  (OtpErlangList.
+   (into-array OtpErlangObject
+	       (map (fn [x]
                       (if (or (instance? OtpErlangBinary x)
-                              (instance? OtpErlangTuple x))
+                              (instance? OtpErlangTuple x)
+                              (instance? OtpErlangAtom x)
+                              (instance? OtpErlangPid x))
                         x
                         (OtpErlangBinary. (.getBytes (str x)))))
 		    args))))
 
 ;; TODO : needs to handle the fact the result returned may not be a OtpErlangList
-(defn- execute 
+(defn- execute
   "RPC Call into the erlang node."
-  ([to-node command args]
+  ([module function args]
      (let [self (OtpSelf. (str @*node-name* "-" (randomNumber)) @*cookie*)
            peer (OtpPeer. @*rabbit-instance*)]
        (with-open [conn (.connect self peer)]
-         (log/infof "[execute] node=%s command=%s args=%s" to-node command args)
-         (.sendRPC conn to-node command (apply create-args args))
+         (log/infof "[execute] module=%s function=%s args=%s" module function args)
+         (.sendRPC conn module function (apply create-args args))
          (.receiveRPC conn)))))
 
 (defn- execute->seq
   "Execute the rpc call, coercing the result into a sequence (must be an OtpErlangList or OtpErlangTuple)."
-  [to-node command args]
-  (as-seq (execute to-node command args)))
+  [module function args]
+  (as-seq (execute module function args)))
 
-(defn- is-successful? 
+(defn- is-successful?
   [f]
   (try (f) true
-       (catch Exception e 
+       (catch Throwable e
+         (log/error e)
+         (.printStackTrace e)
          false)))
 
 ;;; via erlang
-(defn status 
+(defn status
   []
   (let [result (execute "rabbit" "status" [])]
-    (let [running-apps (map (fn [a] 
+    (let [running-apps (map (fn [a]
                               {:service     (otp->pullv a 0)
                                :description (otp->pullv a 1)
-                               :version     (otp->pullv a 2)}) 
+                               :version     (otp->pullv a 2)})
                             (as-seq (_2nd (_1st result))))
           nodes (map value (as-seq (_2nd (_2nd result))))
           running-nodes (map value (as-seq (_2nd (_3rd result))))]
@@ -220,7 +226,7 @@ user and password set on the instance."
 
 (defn list-exchanges
   "List all the exchanges for a given virtual host"
-  [#^String vhost] 
+  [#^String vhost]
   (map #(let [vhost       (otp->pullv % 0 1 1)
               name        (otp->pullv % 0 1 3)
               type        (otp->pullv % 1 1)
@@ -255,26 +261,18 @@ user and password set on the instance."
 
 (defn list-bindings
   "List the bindings at a virtual host."
-  [#^String vhost] 
-  (let [result (execute->seq "rabbit_exchange" "list_bindings" [vhost])] 
+  [#^String vhost]
+  (let [result (execute->seq "rabbit_exchange" "list_bindings" [vhost])]
     (map #(let [vhost       (otp->pullv % 0 1)
                 exchange    (otp->pullv % 0 3)
                 queue       (otp->pullv % 1 3)
                 routing-key (otp->pullv % 2)
                 ;; [] not translated
-                ] 
+                ]
             (struct queue-binding vhost exchange queue routing-key))
          result)))
 
-(defmacro is-successful2? 
-  [node cmd args]
-  (try (execute ~node ~cmd ~args) true
-       (catch Exception e 
-         (log/errorf "failed executing node=%s cmd=%s args=%s"
-                     node cmd args)
-         false)))
-
-(defn stop-app 
+(defn stop-app
   "Stop the rabbit application in the connected erlang node."
   []
   (is-successful? #(execute "rabbit" "stop" [])))
@@ -312,7 +310,7 @@ user and password set on the instance."
 
 (defn list-vhost-permissions
   [#^String vhost]
-  (map #(struct user 
+  (map #(struct user
                (otp->pullv % 0)
                vhost
                (otp->pullv % 1)
@@ -323,7 +321,7 @@ user and password set on the instance."
 (defn list-user-permissions
   [u]
   (remove nil?
-          (map #(if (and (instance? OtpErlangTuple %) 
+          (map #(if (and (instance? OtpErlangTuple %)
                          (= (count (.elements %)) 4))
                     (struct user
                             u
@@ -333,9 +331,9 @@ user and password set on the instance."
                             (otp->pullv % 3)))
                 (execute-list-permissions->seq u "list_user_permissions"))))
 
-(defn list-users 
+(defn list-users
   []
-  (su/flatten 
+  (su/flatten
     (map #(list-user-permissions (value %))
          (execute->seq "rabbit_access_control" "list_users" []))))
 
@@ -348,7 +346,7 @@ user and password set on the instance."
 ;; needs to handle user already exists error
 (defn add-user
   [#^String name #^String password]
-  (is-successful? #(execute "rabbit_access_control" "add_user" [name password]))) 
+  (is-successful? #(execute "rabbit_access_control" "add_user" [name password])))
 
 (defn change-password
   [#^String name #^String password]
@@ -356,7 +354,7 @@ user and password set on the instance."
 
 (defn delete-user
   [#^String name]
-  (is-successful? #(execute "rabbit_access_control" "delete_user" [name]))) 
+  (is-successful? #(execute "rabbit_access_control" "delete_user" [name])))
 
 (defn- parse-ip
   [addr_tuple]
@@ -366,9 +364,10 @@ user and password set on the instance."
 	part4 (_4th addr_tuple)]
     (str part1 "." part2 "." part3 "." part4)))
 
-(defn list-connections 
+(defn list-connections
   []
-  (map #(let [pid           (otp->pullv % 0 1)
+  ;;; pid is an OtpErlangPid not String
+  (map #(let [pid           (otp->pull % 0 1)
               address       (parse-ip (otp->pull % 1 1))
               port          (otp->pullv % 2 1)
               peer_address  (parse-ip (otp->pull % 3 1))
@@ -391,9 +390,21 @@ user and password set on the instance."
                   timeout frame-max))
        (execute->seq "rabbit_networking" "connection_info_all" [])))
 
+(defn- exit [pid]
+  (is-successful? (execute "erlang" "exit" [pid (OtpErlangAtom. "kill")])))
+
+(defn kill-connections
+  "Kill all user connections for a given vhost"
+  [vhost user]
+  (let [successful (atom true)]
+    (doseq [conn (filter #(and (= vhost (:vhost %))
+                               (= user (:user %))) (list-connections))]
+      (reset! successful (and successful (exit (:pid conn)))))
+    @successful))
+
 (defn set-permissions
   [#^String user #^String vhost {config_regex :config write_regex :write read_regex :read}]
-  (is-successful? #(execute "rabbit_access_control" "set_permissions" 
+  (is-successful? #(execute "rabbit_access_control" "set_permissions"
                             [user vhost config_regex write_regex read_regex])))
 
 (defn clear-permissions
@@ -423,13 +434,13 @@ user and password set on the instance."
 
 (defn- is-user
   [tuple]
-  (= (otp->pullv tuple 0) 
+  (= (otp->pullv tuple 0)
      "user"))
 
-(defn valid-user 
+(defn valid-user
   [#^String name #^String password]
   (is-user (execute
-            "rabbit_access_control" "check_login" 
-            [(OtpErlangBinary. (.getBytes "PLAIN"))  
+            "rabbit_access_control" "check_login"
+            [(OtpErlangBinary. (.getBytes "PLAIN"))
              (OtpErlangBinary. (.getBytes (str name "\u0000" password)))])))
 
