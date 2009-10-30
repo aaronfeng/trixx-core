@@ -20,16 +20,16 @@
 
 (ns com.leftrightfold.trixx.core
   (:import (com.rabbitmq.client ConnectionParameters ConnectionFactory
-				                        MessageProperties QueueingConsumer Connection)
-	         (com.ericsson.otp.erlang OtpSelf OtpPeer OtpConnection
-				                            OtpErlangObject OtpErlangBinary OtpErlangLong
-				                            OtpErlangList OtpErlangAtom OtpErlangTuple
-                                                            OtpErlangPid
-                                                            OtpNode OtpMbox))
-  (:require [clojure.contrib.seq-utils  :as su])
-  (:require [clojure.contrib.str-utils  :as str])
-  (:require [clojure.contrib.java-utils :as ju])
-  (:require [com.leftrightfold.trixx.log-utils :as log]))
+                                MessageProperties QueueingConsumer Connection)
+           (com.ericsson.otp.erlang OtpSelf OtpPeer OtpConnection
+                                    OtpErlangObject OtpErlangBinary OtpErlangLong
+                                    OtpErlangList OtpErlangAtom OtpErlangTuple
+                                    OtpErlangPid
+                                    OtpNode OtpMbox))
+  (:require [clojure.contrib.seq-utils  :as su]
+            [clojure.contrib.str-utils  :as str]
+            [clojure.contrib.java-utils :as ju]
+            [com.leftrightfold.trixx.log-utils :as log]))
 
 (def *log* (log/get-logger *ns*))
 
@@ -38,6 +38,9 @@
 (def *server*          (atom (ju/get-system-property "com.leftrightfold.trixx.rabbit-server"   "localhost")))
 (def *rabbit-instance* (atom (ju/get-system-property "com.leftrightfold.trixx.rabbit-instance" "rabbit")))
 (def *random*          (atom (java.util.Random.)))
+(def *message-properties* {:minimal-basic MessageProperties/MINIMAL_BASIC
+                           :persistent-text-plain MessageProperties/PERSISTENT_TEXT_PLAIN})
+(def *delivery* (atom nil))
 
 (defn- randomNumber []
   (.. @*random* nextInt))
@@ -151,13 +154,6 @@ them apart.  The path is applied as a nested series of calls to
       (value item))))
 
 ;;; utility functions
-(defmacro with-channel
-  "Executes the given form (as if a doto) in the context of a fresh connection and channgel."
-  [server vhost user password f]
-  `(with-open [connection# (create-conn ~server (create-conn-params ~vhost ~user ~password))
-	       channel# (.createChannel connection#)]
-     (doto channel# ~f)))
-
 (defn- #^Connection create-conn
   "Create a connection from a fresh, discarded, connection factory."
   [#^String server #^ConnectionParameters params]
@@ -172,6 +168,13 @@ user and password set on the instance."
     (.setVirtualHost vhost)
     (.setUsername    user)
     (.setPassword    password)))
+
+(defmacro with-channel
+  "Executes the given form (as if a doto) in the context of a fresh connection and channgel."
+  [server vhost user password f]
+  `(with-open [connection# (create-conn ~server (create-conn-params ~vhost ~user ~password))
+	       channel# (.createChannel connection#)]
+     (doto channel# ~f)))
 
 (defn- #^OtpErlangList create-args
   "Helper to construct and return an OtpErlangList suitable for the var-args of rpc calls."
@@ -432,6 +435,18 @@ user and password set on the instance."
   [#^String vhost #^String user #^String password #^String queue #^String exchange #^String routing-key]
   (is-successful? #(with-channel @*server* vhost user password (.queueBind queue exchange routing-key))))
 
+(defn basic-publish
+  [#^String user #^String password #^String vhost #^String exchange #^String routing-key #^MessageProperties properties #^"[B" bytes]
+  (is-successful? #(with-channel @*server* vhost user password (.basicPublish exchange routing-key properties bytes))))
+
+(defmacro with-consumer [server vhost queue no-ack user password]
+  `(with-open [connection# (create-conn ~server (create-conn-params ~vhost ~user ~password))
+               channel# (.createChannel connection#)]
+     (let [consumer# (QueueingConsumer. channel#)]
+       (.basicConsume channel# ~queue ~no-ack consumer#)
+       (reset! *delivery* (.nextDelivery consumer#))
+       (if (not ~no-ack) (.basicAck channel# (.. @*delivery* getEnvelope getDeliveryTag) false)))))
+
 (defn- is-user
   [tuple]
   (= (otp->pullv tuple 0)
@@ -443,4 +458,3 @@ user and password set on the instance."
             "rabbit_access_control" "check_login"
             [(OtpErlangBinary. (.getBytes "PLAIN"))
              (OtpErlangBinary. (.getBytes (str name "\u0000" password)))])))
-
