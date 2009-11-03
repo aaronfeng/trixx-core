@@ -76,6 +76,9 @@
   []
   (reset! *cookie* nil))
 
+(defn init* [server cookie]
+  (reset! *server* server)
+  (reset! *cookie* cookie))
 
 (defn init []
   (set-erlang-cookie!)
@@ -83,7 +86,7 @@
     (throw (RuntimeException. (format "Trixx Initialization Error, Erlang cookie not set, unable to continue.  Tried system property com.leftrightfold.trixx.cookie and the file $HOME/.erlang.cookie"))))
   (log/infof "*cookie*=%s"          @*cookie*)
   (log/infof "*server*=%s"          @*server*)
-  (log/infof "*rabbit-instance*=%s" @*rabbit-instance*) )
+  (log/infof "*rabbit-instance*=%s" @*rabbit-instance*))
 
 
 (defstruct exchange-info :name :vhost :type :durable :auto-delete)
@@ -168,6 +171,14 @@ user and password set on the instance."
     (.setVirtualHost vhost)
     (.setUsername    user)
     (.setPassword    password)))
+
+(defmacro with-consumer [server vhost queue no-ack user password]
+  `(with-open [connection# (create-conn ~server (create-conn-params ~vhost ~user ~password))
+               channel# (.createChannel connection#)]
+     (let [consumer# (QueueingConsumer. channel#)]
+       (.basicConsume channel# ~queue ~no-ack consumer#)
+       (reset! *delivery* (.nextDelivery consumer#))
+       (if (not ~no-ack) (.basicAck channel# (.. @*delivery* getEnvelope getDeliveryTag) false)))))
 
 (defmacro with-channel
   "Executes the given form (as if a doto) in the context of a fresh connection and channgel."
@@ -438,14 +449,6 @@ user and password set on the instance."
 (defn basic-publish
   [#^String user #^String password #^String vhost #^String exchange #^String routing-key #^MessageProperties properties #^"[B" bytes]
   (is-successful? #(with-channel @*server* vhost user password (.basicPublish exchange routing-key properties bytes))))
-
-(defmacro with-consumer [server vhost queue no-ack user password]
-  `(with-open [connection# (create-conn ~server (create-conn-params ~vhost ~user ~password))
-               channel# (.createChannel connection#)]
-     (let [consumer# (QueueingConsumer. channel#)]
-       (.basicConsume channel# ~queue ~no-ack consumer#)
-       (reset! *delivery* (.nextDelivery consumer#))
-       (if (not ~no-ack) (.basicAck channel# (.. @*delivery* getEnvelope getDeliveryTag) false)))))
 
 (defn- is-user
   [tuple]

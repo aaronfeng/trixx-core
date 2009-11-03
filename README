@@ -1,3 +1,6 @@
 Trixx core
 
 Not ready yet...
+
+* Jinterface OtpSelf.connect contacts epmd to figure out what port is open for target node
+  make sure that port is open on that target machine.
