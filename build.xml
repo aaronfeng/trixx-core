@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <project name="trixx" default="mvn-install" basedir=".">
-  <property name="mvn.deps.file" value="trixx-core-deps-0.2.zip" />
+  <property name="mvn.deps.file" value="trixx-core-deps-0.3.zip" />
   <property name="mvn.deps.url" value="http://cloud.github.com/downloads/aaronfeng/trixx-core/${mvn.deps.file}" />
 
-  <property name="mvn.install.rabbitmq-client.jar" value="rabbitmq-client-1.6.0.jar" />
+  <property name="mvn.install.rabbitmq-client.jar" value="rabbitmq-client-1.7.0.jar" />
   <property name="mvn.install.clojure-contrib.jar" value="clojure-contrib-1.0.0.jar" />
   <property name="mvn.install.otp-erlang.jar" value="OtpErlang-1.5.1.jar" />
 
@@ -23,7 +23,7 @@
       <arg value="-Dfile=./deps/${mvn.install.rabbitmq-client.jar}" />
       <arg value="-DgroupId=com.rabbitmq" />
       <arg value="-DartifactId=amqp-client" />
-      <arg value="-Dversion=1.6.0" />
+      <arg value="-Dversion=1.7.0" />
       <arg value="-Dpackaging=jar" />
     </exec>
 
