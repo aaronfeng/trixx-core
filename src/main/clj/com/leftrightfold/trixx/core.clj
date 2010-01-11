@@ -36,7 +36,7 @@
 (def *node-name*       (atom "trixx"))
 (def *cookie*          (atom (ju/get-system-property "com.leftrightfold.trixx.cookie")))
 (def *server*          (atom (ju/get-system-property "com.leftrightfold.trixx.rabbit-server"   "localhost")))
-(def *rabbit-instance* (atom (ju/get-system-property "com.leftrightfold.trixx.rabbit-instance" "rabbit")))
+(def *rabbit-instance* (atom (ju/get-system-property "com.leftrightfold.trixx.rabbit-instance" "rabbit@localhost")))
 (def *random*          (atom (java.util.Random.)))
 (def *message-properties* {:minimal-basic MessageProperties/MINIMAL_BASIC
                            :persistent-text-plain MessageProperties/PERSISTENT_TEXT_PLAIN})
