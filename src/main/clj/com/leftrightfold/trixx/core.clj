@@ -66,8 +66,7 @@
    (f)
    true
    (catch Throwable e
-     (log/warn e)
-     (.printStackTrace e)
+     (log/debug e)
      false)))
 
 (declare status)
