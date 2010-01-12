@@ -33,61 +33,85 @@
 
 (def *log* (log/get-logger *ns*))
 
-(def *node-name*       (atom "trixx"))
-(def *cookie*          (atom (ju/get-system-property "com.leftrightfold.trixx.cookie")))
-(def *server*          (atom (ju/get-system-property "com.leftrightfold.trixx.rabbit-server"   "localhost")))
-(def *rabbit-instance* (atom (ju/get-system-property "com.leftrightfold.trixx.rabbit-instance" "rabbit@localhost")))
-(def *random*          (atom (java.util.Random.)))
+(def *trixx-config* (atom {:amqp-server nil
+                           :otp-nodename  nil
+                           :erlang-cookie nil}))
+
+(defn get-local-hostname []
+  (.getHostName (java.net.InetAddress/getLocalHost)))
+
+(defn default-otp-instance-name []
+  (format "rabbit@%s" (first (.split (get-local-hostname) "\\."))))
+
 (def *message-properties* {:minimal-basic MessageProperties/MINIMAL_BASIC
                            :persistent-text-plain MessageProperties/PERSISTENT_TEXT_PLAIN})
 (def *delivery* (atom nil))
 
-(defn- randomNumber []
-  (.. @*random* nextInt))
+(def randomNumber
+     (let [rnd (java.util.Random.)]
+       (fn [] (.nextInt rnd))))
 
-(defn- #^String load-cookie
-  "Set the Erlang *cookie* from the contents of a local file (as a string)."
-  [#^String cookie-file]
-  (reset! *cookie* (str/chop (slurp cookie-file))))
+(defn load-cookie-from-file [file]
+  (let [f (ju/as-file file)]
+    (when (.exists f)
+      (str/chop (slurp file)))))
 
-(defn- #^String load-default-cookie-file
-  "Set the Erlang *cookie* from the file $HOME/.erlang.cookie (the default location)."
-  []
-  (load-cookie (str (ju/get-system-property "user.home") "/.erlang.cookie")))
+(defn get-amqp-server []
+  (or (ju/get-system-property "com.leftrightfold.trixx.amqp-server")
+      (System/getenv "TRIXX_AMQP_SERVER")
+      "localhost"))
 
-(defn set-erlang-cookie! []
-  ;; Try to set the cookie, using various fallbacks
-  (let [cookie (ju/get-system-property "com.leftrightfold.trixx.cookie")]
-    (if cookie
-      (do
-        (reset! *cookie* cookie)
-        (log/infof "set *cookie*=%s via system property (com.leftrightfold.trixx.cookie)" @*cookie*))))
+(defn- is-successful? [f]
+  (try
+   (f)
+   true
+   (catch Throwable e
+     (log/warn e)
+     (.printStackTrace e)
+     false)))
 
-  (if (not @*cookie*)
-    (let [file (str (ju/get-system-property "user.home") "/.erlang.cookie")
-          f (ju/as-file file)]
-      (if (.exists f)
-        (do
-          (log/infof "set *cookie*=%s via file: %s" @*cookie* file)
-          (load-cookie file))))))
+(declare status)
 
-(defn clear-cookie!
-  "Clears the erlang cookie, useful for REPL and testing."
-  []
-  (reset! *cookie* nil))
+(defn try-otp-connection [otp-nodename]
+  (binding [*trixx-config* (atom (merge @*trixx-config* {:otp-nodename otp-nodename}))]
+    (is-successful? (fn [] (status)))))
 
-(defn init* [server cookie]
-  (reset! *server* server)
-  (reset! *cookie* cookie))
+(defn get-default-otp-nodename []
+  (or (ju/get-system-property "com.leftrightfold.trixx.otp-nodename")
+      (System/getenv "NODENAME")
+      (System/getenv "RABBITMQ_NODENAME")
+      (System/getenv "TRIXX_OTP_NODENAME")
+      (let [name (default-otp-instance-name)]
+        (if (try-otp-connection name)
+          name
+          nil))
+      (let [name "rabbit@localhost"]
+        (if (try-otp-connection name)
+          name
+          nil))))
 
-(defn init []
-  (set-erlang-cookie!)
-  (if (not @*cookie*)
+(defn get-erlang-cookie []
+  (or (ju/get-system-property "com.leftrightfold.trixx.cookie")
+      (System/getenv "TRIXX_ERLANG_COOKIE")
+      (load-cookie-from-file (str (ju/get-system-property "user.home") "/.erlang.cookie"))))
+
+(def *default-options* {:amqp-server (fn [] (get-amqp-server))
+                        :otp-nodename  (fn [] (get-default-otp-nodename))
+                        :erlang-cookie (fn [] (get-erlang-cookie))})
+
+(defn init [& [options]]
+  (let [opts        (merge *default-options* options)
+        cfg-set!    (fn [k]
+                      (swap! *trixx-config* assoc k (let [val (opts k)]
+                                                      (if (fn? val) (val) val))))]
+    (doseq [k [:erlang-cookie :amqp-server :otp-nodename]]
+      (cfg-set! k)))
+
+  (if (not (:erlang-cookie @*trixx-config*))
     (throw (RuntimeException. (format "Trixx Initialization Error, Erlang cookie not set, unable to continue.  Tried system property com.leftrightfold.trixx.cookie and the file $HOME/.erlang.cookie"))))
-  (log/infof "*cookie*=%s"          @*cookie*)
-  (log/infof "*server*=%s"          @*server*)
-  (log/infof "*rabbit-instance*=%s" @*rabbit-instance*))
-
+  (when (not (try-otp-connection (:otp-nodename @*trixx-config*)))
+   (throw (RuntimeException. (format "Trixx unable to connect to erlang otp node. config=%s" @*trixx-config*))))
+  (log/infof "*trixx-config*=%s" @*trixx-config*))
 
 (defstruct exchange-info :name :vhost :type :durable :auto-delete)
 
@@ -174,14 +198,16 @@ user and password set on the instance."
 
 (defmacro with-consumer [server vhost queue no-ack user password]
   `(with-open [connection# (create-conn ~server (create-conn-params ~vhost ~user ~password))
-               channel# (.createChannel connection#)]
+               channel#    (.createChannel connection#)]
      (let [consumer# (QueueingConsumer. channel#)]
        (.basicConsume channel# ~queue ~no-ack consumer#)
-       (reset! *delivery* (.nextDelivery consumer#))
-       (if (not ~no-ack) (.basicAck channel# (.. @*delivery* getEnvelope getDeliveryTag) false)))))
+       (let [delivery# (.nextDelivery consumer#)]
+         (reset! *delivery* delivery#)
+         (if (not ~no-ack) (.basicAck channel# (.. delivery# getEnvelope getDeliveryTag) false))
+         delivery#))))
 
 (defmacro with-channel
-  "Executes the given form (as if a doto) in the context of a fresh connection and channgel."
+  "Executes the given form (as if a doto) in the context of a fresh connection and channel."
   [server vhost user password f]
   `(with-open [connection# (create-conn ~server (create-conn-params ~vhost ~user ~password))
 	       channel# (.createChannel connection#)]
@@ -205,8 +231,8 @@ user and password set on the instance."
 (defn- execute
   "RPC Call into the erlang node."
   ([module function args]
-     (let [self (OtpSelf. (str @*node-name* "-" (randomNumber)) @*cookie*)
-           peer (OtpPeer. @*rabbit-instance*)]
+     (let [self (OtpSelf. (str (:otp-nodename @*trixx-config*) "-" (randomNumber)) (:erlang-cookie @*trixx-config*))
+           peer (OtpPeer. (:otp-nodename @*trixx-config*))]
        (with-open [conn (.connect self peer)]
          (log/infof "[execute] module=%s function=%s args=%s" module function args)
          (.sendRPC conn module function (apply create-args args))
@@ -216,14 +242,6 @@ user and password set on the instance."
   "Execute the rpc call, coercing the result into a sequence (must be an OtpErlangList or OtpErlangTuple)."
   [module function args]
   (as-seq (execute module function args)))
-
-(defn- is-successful?
-  [f]
-  (try (f) true
-       (catch Throwable e
-         (log/error e)
-         (.printStackTrace e)
-         false)))
 
 ;;; via erlang
 (defn status
@@ -428,27 +446,27 @@ user and password set on the instance."
 ;;; via protocol
 (defn add-queue
   [#^String vhost #^String user #^String password #^String queue-name #^Boolean durable]
-  (is-successful? #(with-channel @*server* vhost user password (.queueDeclare queue-name durable))))
+  (is-successful? #(with-channel (:amqp-server @*trixx-config*) vhost user password (.queueDeclare queue-name durable))))
 
 (defn delete-queue
   [#^String vhost #^String user #^String password #^String queue-name]
-  (is-successful? #(with-channel @*server* vhost user password (.queueDelete queue-name))))
+  (is-successful? #(with-channel (:amqp-server @*trixx-config*) vhost user password (.queueDelete queue-name))))
 
 (defn add-exchange
   [#^String vhost #^String user #^String password #^String name #^String type #^Boolean durable]
-  (is-successful? #(with-channel @*server* vhost user password (.exchangeDeclare name type durable))))
+  (is-successful? #(with-channel (:amqp-server @*trixx-config*) vhost user password (.exchangeDeclare name type durable))))
 
 (defn delete-exchange
   [#^String vhost #^String user #^String password #^String name]
-  (is-successful? #(with-channel @*server* vhost user password (.exchangeDelete name))))
+  (is-successful? #(with-channel (:amqp-server @*trixx-config*) vhost user password (.exchangeDelete name))))
 
 (defn add-binding
   [#^String vhost #^String user #^String password #^String queue #^String exchange #^String routing-key]
-  (is-successful? #(with-channel @*server* vhost user password (.queueBind queue exchange routing-key))))
+  (is-successful? #(with-channel (:amqp-server @*trixx-config*) vhost user password (.queueBind queue exchange routing-key))))
 
 (defn basic-publish
   [#^String user #^String password #^String vhost #^String exchange #^String routing-key #^MessageProperties properties #^"[B" bytes]
-  (is-successful? #(with-channel @*server* vhost user password (.basicPublish exchange routing-key properties bytes))))
+  (is-successful? #(with-channel (:amqp-server @*trixx-config*) vhost user password (.basicPublish exchange routing-key properties bytes))))
 
 (defn- is-user
   [tuple]

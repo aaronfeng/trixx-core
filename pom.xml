@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.leftrightfold</groupId>
   <artifactId>trixx-core</artifactId>
-  <version>0.3.1</version>
+  <version>0.3.2</version>
   <packaging>jar</packaging>
   <name>Trixx Core</name>
   <description>Rabbitmq monitoring tool</description>
