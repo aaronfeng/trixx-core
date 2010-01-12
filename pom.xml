@@ -22,6 +22,11 @@
       <name>Aaron Feng</name>
       <email>aaron.feng@gmail.com</email>
     </developer>
+    <developer>
+      <id>kburton</id>
+      <name>Kyle Burton</name>
+      <email>kyle.burton@gmail.com</email>
+    </developer>
   </developers>
 
   <issueManagement>
