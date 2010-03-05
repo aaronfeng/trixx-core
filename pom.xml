@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.leftrightfold</groupId>
   <artifactId>trixx-core</artifactId>
-  <version>0.3.2</version>
+  <version>0.3.3</version>
   <packaging>jar</packaging>
   <name>Trixx Core</name>
   <description>Rabbitmq monitoring tool</description>
@@ -33,6 +33,14 @@
     <system>**none**</system>
     <url>http://leftrightfold.com/**none**</url>
   </issueManagement>
+
+  <repositories>
+    <!-- Rejpository for swank-clojure (we still need our own clojure and contrib since they're customized). -->
+    <repository>
+      <id>clojars</id>
+      <url>http://clojars.org/repo/</url>
+    </repository>
+  </repositories>
 
   <build>
     <plugins>
@@ -104,19 +112,20 @@
                 <property name="artifact.id" value="${project.artifactId}"  />
                 <property name="version" value="${project.version}"  />
                 <echo message="INSTALL-SCRIPTS" />
-                <filter token="maven.runtime.classpath"
-                        value="${maven.runtime.classpath}:${project.build.directory}/../src/main/clj" />
-                <filter token="maven.test.classpath"
-                        value="${maven.test.classpath}:${project.build.directory}/../src/main/clj" />
+                <filter token="maven.runtime.classpath" value="${maven.runtime.classpath}:${basedir}/src/main/clj" />
+                <filter token="maven.test.classpath"    value="${maven.test.classpath}:${basedir}/src/main/clj" />
                 <filter token="bin.dir" value="${bin.dir}" />
                 <filter token="target.directory" value="${project.build.directory}" />
                 <filter token="test.classpath" value="${test.classpath}" />
                 <filter token="group.id" value="${group.id}" />
                 <filter token="artifact.id" value="${artifact.id}" />
                 <filter token="version" value="${version}" />
+                <filter token="project.dir" value="${basedir}" />
                 <mkdir dir="${bin.dir}" />
                 <copy file="${basedir}/src/main/sh/trixx-core-repl" todir="${bin.dir}" filtering="on" />
-                <chmod dir="${bin.dir}" type="file" perm="0755" includes="trixx-core-repl,*.sh" verbose="true" />
+                <copy file="${basedir}/src/main/sh/trixx-repl" todir="${bin.dir}" filtering="on" />
+                <copy file="${basedir}/src/main/emacs/slime-incl.el" todir="${bin.dir}" filtering="on" />
+                <chmod dir="${bin.dir}" type="file" perm="0755" includes="trixx-core-repl,trixx-repl,*.sh" verbose="true" />
               </tasks>
             </configuration>
             <goals>
@@ -169,6 +178,11 @@
       <groupId>commons-io</groupId>
       <artifactId>commons-io</artifactId>
       <version>1.4</version>
+    </dependency>
+    <dependency>
+      <groupId>org.clojure</groupId>
+      <artifactId>swank-clojure</artifactId>
+      <version>1.0</version>
     </dependency>
   </dependencies>
 

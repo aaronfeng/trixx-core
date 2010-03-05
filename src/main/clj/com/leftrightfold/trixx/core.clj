@@ -51,15 +51,28 @@
      (let [rnd (java.util.Random.)]
        (fn [] (.nextInt rnd))))
 
+(defn exists? [file]
+  (.exists (ju/as-file file)))
+
 (defn load-cookie-from-file [file]
-  (let [f (ju/as-file file)]
-    (when (.exists f)
-      (str/chop (slurp file)))))
+  (when (exists? file)
+    (let [data (slurp file)]
+      (first (seq (.split data "[\\r\\n]"))))))
+
+
+;; (str/chop (slurp file))
+
+(def *erlang-amqp-server-property*             "com.leftrightfold.trixx.amqp-server")
+(def *erlang-amqp-server-environment-variable* "TRIXX_AMQP_SERVER")
+(def *erlang-amqp-server-default*              "localhost")
+
+(defn getenv [var]
+  (System/getenv var))
 
 (defn get-amqp-server []
-  (or (ju/get-system-property "com.leftrightfold.trixx.amqp-server")
-      (System/getenv "TRIXX_AMQP_SERVER")
-      "localhost"))
+  (or (ju/get-system-property *erlang-amqp-server-property*)
+      (getenv *erlang-amqp-server-environment-variable*)
+      *erlang-amqp-server-default*))
 
 (defn- is-successful? [f]
   (try
@@ -77,9 +90,9 @@
 
 (defn get-default-otp-nodename []
   (or (ju/get-system-property "com.leftrightfold.trixx.otp-nodename")
-      (System/getenv "NODENAME")
-      (System/getenv "RABBITMQ_NODENAME")
-      (System/getenv "TRIXX_OTP_NODENAME")
+      (getenv "NODENAME")
+      (getenv "RABBITMQ_NODENAME")
+      (getenv "TRIXX_OTP_NODENAME")
       (let [name (default-otp-instance-name)]
         (if (try-otp-connection name)
           name
@@ -89,9 +102,11 @@
           name
           nil))))
 
+(def *erlang-cookie-property* "com.leftrightfold.trixx.cookie")
+
 (defn get-erlang-cookie []
-  (or (ju/get-system-property "com.leftrightfold.trixx.cookie")
-      (System/getenv "TRIXX_ERLANG_COOKIE")
+  (or (ju/get-system-property *erlang-cookie-property*)
+      (getenv "TRIXX_ERLANG_COOKIE")
       (load-cookie-from-file (str (ju/get-system-property "user.home") "/.erlang.cookie"))))
 
 (def *default-options* {:amqp-server (fn [] (get-amqp-server))
